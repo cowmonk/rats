@@ -21,6 +21,30 @@ usage(void)
 	eprintf("usage: %s [-d dir] [-s bytes] [-n count]\n", argv0);
 }
 
+static void
+mkdir_p(const char *path)
+{
+	char tmp[PATH_MAX];
+	char *p;
+	size_t len;
+
+	strlcpy(tmp, path, sizeof(tmp));
+	len = strlen(tmp);
+	if (len > 0 && tmp[len - 1] == '/')
+		tmp[len - 1] = '\0';
+
+	for (p = tmp + 1; *p; p++) {
+		if (*p == '/') {
+			*p = '\0';
+			if (mkdir(tmp, 0755) < 0 && errno != EEXIST)
+				eprintf("mkdir %s:", tmp);
+			*p = '/';
+		}
+	}
+	if (mkdir(tmp, 0755) < 0 && errno != EEXIST)
+		eprintf("mkdir %s:", tmp);
+}
+
 int
 main(int argc, char *argv[])
 {
@@ -41,6 +65,8 @@ main(int argc, char *argv[])
 	case 'n': maxfiles = estrtonum(EARGF(usage()), 1, 1000); break;
 	default:  usage();
 	} ARGEND
+
+	mkdir_p();
 
 	snprintf(cur, sizeof(cur), "%s/current", dir);
 	fd = open(cur, O_WRONLY | O_CREAT | O_APPEND, 0644);
