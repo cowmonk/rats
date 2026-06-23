@@ -136,32 +136,6 @@ What does slog NOT do:
       them if needed.
 
 
-Installed Files
-===============
-
-# bin/sbin can be set separately
-$(PREFIX)/sbin/origo # PID 1
-$(PREFIX)/sbin/serva # supervisor
-$(PREFIX)/bin/svc    # control client
-$(PREFIX)/bin/slog   # logging daemon
-
-Optional Installed Files
-------------------------
-All files below are example files, it's entirely possible to run a system with
-these example files with little to no changes.
-
-    /etc/rc.boot     # (REQUIRED) first run before serva
-    /etc/rc.shutdown # (REQUIRED) run before full shutdown
-
-    /etc/rc.local    # (optional) rc.boot should source this
-    /etc/rc.single   # (optional) single-user script, else origo will run /bin/sh
-
-NOTE: Below are shell scripts.
-
-     files/bin/poweroff # sends SIGUSR1 to PID1
-     files/bin/reboot   # sends SIGINT to PID1
-
-
 Requirements
 ============
 
@@ -185,7 +159,7 @@ Basically, just make LDFLAGS empty.
 Installation
 ============
 
-Follows regular make install conventions (DESTDIR and PREFIX). 
+Follows regular make install conventions ($DESTDIR and $PREFIX). 
 Additionally, you are able to set SBIN_DIR and BIN_DIR (/sbin, /bin).
 
     make install # will install to /usr/local by default
@@ -193,6 +167,37 @@ Additionally, you are able to set SBIN_DIR and BIN_DIR (/sbin, /bin).
 Install example rc.* files along with poweroff/reboot commands:
 
     make install-files
+
+
+Installed Files
+===============
+
+Below are the executables that are installed when invoking `make install`, you are expected
+to provide your own rc.* scripts, unless you install the optional example files.
+
+    $(PREFIX)/sbin/origo # PID 1
+    $(PREFIX)/sbin/serva # supervisor
+    $(PREFIX)/bin/svc    # control client
+    $(PREFIX)/bin/slog   # logging daemon
+
+NOTE: sbin/bin can be changed via the make envs `$BIN_DIR` and `$SBIN_DIR`; these are for
+systems (me) that don't have an sbin, or prefer some other binary directory.
+
+Optional Installed Files
+------------------------
+All files below are example files that are installed when invoking `make install-files`,
+it's entirely possible to run a system with these example files with little to no changes.
+
+    /etc/rc.boot     # (REQUIRED) first run before serva
+    /etc/rc.shutdown # (REQUIRED) run before full shutdown
+
+    /etc/rc.local    # (optional) rc.boot should source this
+    /etc/rc.single   # (optional) single-user script, else origo will run /bin/sh
+
+NOTE: Below are shell scripts.
+
+     $(PREFIX)/bin/poweroff # sends SIGUSR1 to PID1
+     $(PREFIX)/bin/reboot   # sends SIGINT to PID1
 
 
 Source Layout
