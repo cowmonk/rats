@@ -1,0 +1,9 @@
+origo
+origo.o
+serva
+serva.o
+svc
+svc.o
+slog
+slog.o
+util.o

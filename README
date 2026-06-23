@@ -1,26 +1,266 @@
-sinit - suckless init
-=====================
+RAdix iniT Suite
+================
 
-sinit is a simple init.  It was initially based on
-Rich Felker's minimal init[1].
+RATS is an init suite forked from sinit to extend the features
+so it could be used standalone.
 
 Why?
 ----
+Even though sinit is pretty good, unfortunately, I want service
+supervision, dependency management, logging, etc all in one instead
+of using separate utilities bootstrapped together. My old setup was
+using sinit + nitro with a bunch of shell scripting to handle things
+I felt that the init is okay to do.
 
-I wanted to get rid of Busybox init on my toy distro[2].
+General boot process
+--------------------
+kernel -> init=/sbin/origo
+    |- origo mounts /proc /sys /dev /dev/pts
+    |- origo runs /etc/rc.boot (which sources /etc/rc.local)
+    |- origo spawns serva
+        |- serva scans /etc/ssv/{boot,default,...}
+        |- serva starts services in (stage, name) alphabetical order
+        |- serva listens on /run/serva.sock
+    |- origo enters signal loop (sigwait)
+        * SIGCHLD  - reap zombies, respawn serva if dead
+        * SIGUSR1  - poweroff
+        * SIGUSR2  - reboot
+        * SIGINT   - reboot (CtrlAltDel)
+        * SIGTERM  - single-user (rc.single or /bin/sh)
 
-How?
-----
 
-There are 3 signals that sinit will act on.
+Project Overview
+================
 
-      SIGUSR1: powers off the machine.
-      SIGINT:  reboots the machine (or alternatively via ctrl-alt-del).
-      SIGCHLD: reap children
+origo: PID 1 - minimal init.
+----------------------------
+Mounts /proc /sys /dev /dev/pts, runs /etc/rc.boot,
+spawns+respawns serva, handles poweroff/reboot/single-user.
+Signal mapping (same as sinit):
+    - SIGINT  -> reboot (CtrlAltDel)
+    - SIGUSR1 -> poweroff
+    - SIGUSR2 -> reboot
+    - SIGTERM -> single-user 
 
-To see how sinit integrates with the init scripts, then have
-a look at [3].
+origo will do the following on shutdown/reboot:
+    1. stopping serva (which stops all supervised services)
+    2. kills all remaining processes
+    3. remount the root read-only
+    4. syncs the fs
 
-[1] https://gist.github.com/rofl0r/6168719
-[2] http://git.2f30.org/morpheus/
-[3] http://git.2f30.org/ports/tree/fs/
+serva: a simple service supervisor.
+-----------------------------------
+Scans /etc/ssv/ for stage directories, forks run per service in
+(stage, name) alphabetical order, restarts with backoff.
+
+It is entirely possible to use either numerical or words for stages
+if desired.
+
+Pipes stdout/stderr to log (logger) if present (has to be executable).
+Listens on /run/serva.sock for svc control commands.
+
+Layout:
+    /etc/ssv/
+        <stage>/                  stage directory (e.g. boot, default)
+            <service>/
+                run               run executable (required; $1 = @-arg)
+                log               logger executable (optional)
+                once              touch-file: run once, don't supervise
+                noreset           touch-file: run but don't restart on exit
+                down              touch-file: don't auto-start; svc -u works
+                need/<name>       hard dep: wait for <name> to be running
+                after/<name>      soft hint: start after <name> if possible
+
+Symlink templates (names ending with @ are skipped):
+        /etc/ssv/boot/tty@/            template directory
+        /etc/ssv/boot/tty@tty1         symlink -> tty@; "tty1" passed as $1
+
+Service identifiers for svc:
+     sshd                 first match across all stages
+     boot/sshd            specific stage + service 
+
+
+NOTE: to the logger, serva sets the following environment variables:
+        - SVC_NAME  : Service name (e.g. sshd)
+        - SVC_STAGE : Stage name (e.g. default)
+        - SVC_ARG   : @ -arg if applicable (e.g. tty1 if getty@tty1)
+
+you can use these in the log script:
+
+    #!/bin/sh
+    exec slog -d "/var/log/$SVC_NAME-$SVC_ARG"
+
+More information on slog later.
+
+This design makes serva logger-agnostic, you are free to use whatever you like
+as long as you can pipe the output into your logger of choice.
+
+svc: control client for serva.
+------------------------------
+Talks to /run/serva.sock over a Unix socket.
+
+usage: svc [-udrkts] [-a] [name...]
+        -u  bring up       -d  bring down      -r  restart
+        -k  kill (SIGKILL) -t  terminate       -s  status
+        -a  all services (with -u or -d) 
+
+slog: simple logging daemon.
+----------------------------
+Reads stdin, writes to <dir>/current, rotates on size.
+Rotated files: <dir>/0, <dir>/1, ..., <dir>/<n-1>
+
+example:
+    /var/log/sshd/current - active log
+    /var/log/sshd/0       - most recent rotation
+    /var/log/sshd/1
+    ...
+    /var/log/sshd/9       - oldest, deleted on next rotation
+
+usage: slog [-d dir] [-s bytes] [-n count]
+        -d  log directory (default: .)
+        -s  max size per file in bytes (default: 1048576 = 1MB)
+        -n  max number of rotated files (default: 10) 
+
+slog works perfectly fine outside of serva:
+    
+    some-daemon 2>&1 | slog -d /var/log/some-daemon -s 524288 -n 5
+
+What does slog NOT do:
+    - No syslog protocol. It reads stdin, writes files. If you need syslog
+      (/dev/log socket), run a real syslogd as a service.
+    - No timestamps. The service's run script should add them if needed
+      (e.g. pipe throughts or use a logger that adds timestamps). Or modify
+      slog to prepend timestamps, it's a 5-line change. Most daemons already
+      provide timestamps anyways.
+    - No compression. Rotated files are plain text. Add a cron job to gzip
+      them if needed.
+
+
+Installed Files
+===============
+
+# bin/sbin can be set separately
+$(PREFIX)/sbin/origo # PID 1
+$(PREFIX)/sbin/serva # supervisor
+$(PREFIX)/bin/svc    # control client
+$(PREFIX)/bin/slog   # logging daemon
+
+Optional Installed Files
+------------------------
+All files below are example files, it's entirely possible to run a system with
+these example files with little to no changes.
+
+    /etc/rc.boot     # (REQUIRED) first run before serva
+    /etc/rc.shutdown # (REQUIRED) run before full shutdown
+
+    /etc/rc.local    # (optional) rc.boot should source this
+    /etc/rc.single   # (optional) single-user script, else origo will run /bin/sh
+
+NOTE: Below are shell scripts.
+
+     files/bin/poweroff # sends SIGUSR1 to PID1
+     files/bin/reboot   # sends SIGINT to PID1
+
+
+Requirements
+============
+
+    cc       POSIX.1-2008-compliant C compiler (pcc, etc)
+    make     POSIX make (aruu make, pdpmake, gmake, bmake)    
+
+
+Building
+========
+
+Building this project is trivial, to build the suite:
+
+    make
+
+Configuration is in config.mk, you can override compile flags via make.
+
+NOTE: by default RATS will try to build statically, you can override this by passing `LDFLAGS=`.
+Basically, just make LDFLAGS empty.
+
+
+Installation
+============
+
+Follows regular make install conventions (DESTDIR and PREFIX). 
+Additionally, you are able to set SBIN_DIR and BIN_DIR (/sbin, /bin).
+
+    make install # will install to /usr/local by default
+
+Install example rc.* files along with poweroff/reboot commands:
+
+    make install-files
+
+
+Source Layout
+=============
+
+    config.mk                   build configuration
+    Makefile                    posix (should work with any *competent* make impl)
+    files/
+       rc.*                     optional example configurations
+       bin/*                    optional scripts to use along with RATS
+    *.c                         c files
+    *.h                         headers
+
+
+TODO
+====
+
+manpages - someone else needs to do this or I'm going to die learning troff
+serva    -- primarily with handling errrors coming from the services itself,
+         |  or at least returning ERR when that's the case.
+         |
+         |- additionally, would be nice to return log/better status from
+            using svc when requesting the status of per service (e.g.
+            svc -s <svc_name>)
+user     - still thinking on this one, I think it would be interesting to
+           have something like dinit. It might be an overreach for this project
+           but it can be used for "bloated" setups where users need dbus-session,
+           pipewire, etc. to run when booted.
+Makefile - it looks garbage, improving it would be nice
+
+
+Contribution
+============
+
+Sending patches is trivial, the main site of development is on the 
+[stagit repo](https://git.daat.foo/rats/log.html).
+This means that all patches aren't sent via PRs on any of the mirrors.
+
+Run a quick `git format-patch HEAD~1` and send to *cowmonk@based.pt* with the
+subject head of `[PATCH] RATS`. Consider reading the manpages of `git-send-email`
+if you are interested in moving towards email for development.
+
+I *strongly* suggest pgp encrypting your email, in which case my public keys can be
+found on `keys.openpgp.org` or here:
+
+-----BEGIN PGP PUBLIC KEY BLOCK-----
+Comment: 52B0 852C 5A4C 823C FAB7  420A 2F73 9BCA BDD5 B880
+Comment: cowmonk@based.pt
+
+xjMEaSJi8xYJKwYBBAHaRw8BAQdAEVP64bLVXCxZYH5rItmtvThKyTrRZ4HFCZ42
+IqFx+crNEGNvd21vbmtAYmFzZWQucHTCiQQTFggAGgQLCQgHAhUIAhYBAhkABYJp
+ImLzAp4BApsDACEJEC9zm8q91biAFiEEUrCFLFpMgjz6t0IKL3Obyr3VuIBOEQEA
++gIa9t3yKL3FAHg5VT2xV8M2VdLf1ZqaFlCPyGhXBZsA+QGGstK6+YsUbmP+H6I5
+r4AgLawGeB9IH7WC0w4dhTsKzjgEaSJi8xIKKwYBBAGXVQEFAQEHQMsmen1ddl9a
+ddXu4ktm8BATTlEy2k4zMzo6RnyRB+d4AwEIB8J4BBgWCAAJBYJpImLzApsMACEJ
+EC9zm8q91biAFiEEUrCFLFpMgjz6t0IKL3Obyr3VuIA9AQD/S/EL51hMSBI35Lr3
+RjuNFtqnlgYpfkMxgPvp2bWRY60A/2NhDRNUjY2wA4+mESlCIf94FVvqcfclnSZU
+A7wM/YAB
+=nZZp
+-----END PGP PUBLIC KEY BLOCK-----
+
+
+LICENSE
+=======
+
+See ./LICENSE for details.
+
+Portions of this software are partially based on code written by Aruu authors and
+contributors, with portions within itself derived from various BSD/MIT-licensed 
+open source projects.
+

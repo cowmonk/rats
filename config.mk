@@ -1,12 +1,8 @@
-# sinit version
-VERSION = 1.1
+# config.mk: build configuration for RITS
 
-# paths
-PREFIX = /usr/local
-MANPREFIX = $(PREFIX)/share/man
-
-CC = cc
-LD = $(CC)
-CPPFLAGS =
-CFLAGS   = -Wextra -Wall -Os
-LDFLAGS  = -s -static
+CC       = cc
+CFLAGS   = -std=c99 -Wall -Wextra -Wpedantic -O2
+LDFLAGS  = -static
+PREFIX   = /usr/local
+SBIN_DIR = /sbin
+BIN_DIR  = /bin

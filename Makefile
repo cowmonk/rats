@@ -1,39 +1,47 @@
+# Makefile: origo - minimal supervised init
+.POSIX:
+
 include config.mk
 
-OBJ = sinit.o
-BIN = sinit
+SRC = origo.c serva.c svc.c slog.c util.c
+OBJ = $(SRC:.c=.o)
+BIN = origo serva svc slog
 
 all: $(BIN)
 
-$(BIN): $(OBJ)
-	$(CC) $(LDFLAGS) -o $@ $(OBJ) $(LDLIBS)
+origo: origo.o util.o
+	$(CC) $(LDFLAGS) -o $@ origo.o util.o
 
-$(OBJ): config.h
+serva: serva.o util.o
+	$(CC) $(LDFLAGS) -o $@ serva.o util.o
+
+svc: svc.o util.o
+	$(CC) $(LDFLAGS) -o $@ svc.o util.o
+
+slog: slog.o util.o
+	$(CC) $(LDFLAGS) -o $@ slog.o util.o
+
+%.o: %.c util.h arg.h
+	$(CC) $(CFLAGS) -c -o $@ $<
 
 install: all
-	mkdir -p $(DESTDIR)$(PREFIX)/bin
-	cp -f $(BIN) $(DESTDIR)$(PREFIX)/bin
-	mkdir -p $(DESTDIR)$(MANPREFIX)/man8
-	sed "s/VERSION/$(VERSION)/g" < $(BIN).8 > $(DESTDIR)$(MANPREFIX)/man8/$(BIN).8
+	install -Dm755 origo             $(DESTDIR)$(PREFIX)$(SBIN_DIR)/origo
+	install -Dm755 serva             $(DESTDIR)$(PREFIX)$(SBIN_DIR)/serva
+	install -Dm755 svc               $(DESTDIR)$(PREFIX)$(BIN_DIR)/svc
+	install -Dm755 slog              $(DESTDIR)$(PREFIX)$(BIN_DIR)/slog
+	install -d                       $(DESTDIR)/etc/ssv/boot
+	install -d                       $(DESTDIR)/etc/ssv/default
 
-uninstall:
-	rm -f $(DESTDIR)$(PREFIX)/bin/$(BIN)
-	rm -f $(DESTDIR)$(MANPREFIX)/man8/$(BIN).8
-
-dist: clean
-	mkdir -p sinit-$(VERSION)
-	cp LICENSE Makefile README config.def.h config.mk sinit.8 sinit.c sinit-$(VERSION)
-	tar -cf sinit-$(VERSION).tar sinit-$(VERSION)
-	gzip sinit-$(VERSION).tar
-	rm -rf sinit-$(VERSION)
+install-files:
+	install -Dm755 files/rc.boot      $(DESTDIR)/etc/rc.boot
+	install -Dm755 files/rc.local     $(DESTDIR)/etc/rc.local
+	install -Dm755 files/rc.shutdown  $(DESTDIR)/etc/rc.shutdown
+	install -Dm755 files/rc.single    $(DESTDIR)/etc/rc.single
+	install -Dm755 files/bin/poweroff $(DESTDIR)$(PREFIX)/bin/poweroff
+	install -Dm755 files/bin/reboot   $(DESTDIR)$(PREFIX)/bin/reboot
 
 clean:
-	rm -f $(BIN) $(OBJ) sinit-$(VERSION).tar.gz
+	rm -f $(BIN) $(OBJ)
 
-.SUFFIXES: .def.h
+.PHONY: all install install-files clean
 
-.def.h.h:
-	cp $< $@
-
-.PHONY:
-	all install uninstall dist clean

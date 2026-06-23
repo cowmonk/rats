@@ -1,0 +1,23 @@
+#!/bin/sh
+# EXAMPLE CONFIGURATION
+# rc.shutdown: run by origo before sync+reboot/poweroff.
+# origo already handles:
+#     1. stopping serva (which stops all supervised services)
+#     2. killing all remaining processes
+#     3. remounting root read-only
+#     4. syncing filesystems
+#
+# Put things here that should clean up BEFORE the kill, e.g.:
+#     - unmount network filesystems
+#     - bring down network interfaces
+#
+
+# deactivate network
+#ip link set eth0 down
+#ip link set lo down
+
+# unmount network fs
+#umount /mnt/nfs
+
+# unmount everything (except root)
+#umount -a -r

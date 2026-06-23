@@ -1,0 +1,4 @@
+#!/bin/sh
+# rc.local: site-local boot customisation, sourced by rc.boot.
+
+# add your stuff here

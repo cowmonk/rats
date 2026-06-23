@@ -1,0 +1,6 @@
+#!/bin/sh
+# rc.single: single-user mode, run by origo on SIGTERM.
+# serva is already stopped. A shell is provided on /dev/console.
+
+echo "Entering single-user mode"
+exec /bin/sh
