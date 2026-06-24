@@ -13,6 +13,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 static void
@@ -66,7 +67,7 @@ main(int argc, char *argv[])
 	default:  usage();
 	} ARGEND
 
-	mkdir_p();
+	mkdir_p(dir);
 
 	snprintf(cur, sizeof(cur), "%s/current", dir);
 	fd = open(cur, O_WRONLY | O_CREAT | O_APPEND, 0644);
