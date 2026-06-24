@@ -34,13 +34,20 @@ Project Overview
 
 origo: PID 1 - minimal init.
 ----------------------------
-Mounts /proc /sys /dev /dev/pts, runs /etc/rc.boot,
+Mounts /proc /sys /dev /dev/pts /dev/shm, runs /etc/rc.boot,
 spawns+respawns serva, handles poweroff/reboot/single-user.
 Signal mapping (same as sinit):
     - SIGINT  -> reboot (CtrlAltDel)
     - SIGUSR1 -> poweroff
     - SIGUSR2 -> reboot
     - SIGTERM -> single-user 
+
+NOTE: origo won't mount `/run` nor `/tmp` to tmpfs because they are 
+optional in most setups. For users who want to mount these at boot,
+you can edit your `/etc/fstab` to do so: This applies to those who
+install the optional example rc.boot script but you can do so yourself
+by invoking `mount -a` in your own rc.boot scripts to have your system
+respect `/etc/fstab`.
 
 origo will do the following on shutdown/reboot:
     1. stopping serva (which stops all supervised services)

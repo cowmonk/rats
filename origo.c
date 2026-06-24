@@ -61,15 +61,18 @@ run_script(const char *path)
 static void
 mount_fs(void)
 {
-	if (mount("proc", "/proc", "proc", 0, NULL) < 0)
+	if (mount("proc", "/proc", "proc", MS_NODEV | MS_NOEXEC | MS_NOSUID | MS_RELATIME, NULL) < 0)
 		weprintf("mount /proc:");
-	if (mount("sysfs", "/sys", "sysfs", 0, NULL) < 0)
+	if (mount("sysfs", "/sys", "sysfs", MS_NODEV | MS_NOEXEC | MS_NOSUID | MS_RELATIME, NULL) < 0)
 		weprintf("mount /sys:");
 	if (mount("devtmpfs", "/dev", "devtmpfs", 0, NULL) < 0)
 		weprintf("mount /dev:");
 	mkdir("/dev/pts", 0755);
-	if (mount("devpts", "/dev/pts", "devpts", 0, NULL) < 0)
+	if (mount("devpts", "/dev/pts", "devpts", MS_NOSUID | MS_NOEXEC | MS_RELATIME, NULL) < 0)
 		weprintf("mount /dev/pts:");
+	mkdir("/dev/shm", 0755);
+	if (mount("tmpfs", "/dev/shm", "tmpfs", MS_NODEV | MS_NOSUID | MS_NOEXEC, NULL) < 0)
+		weprintf("mount /dev/shm:");
 }
 
 /* reap: handle SIGCHLD, respawn serva if it died */
