@@ -67,6 +67,7 @@ main(int argc, char *argv[])
 
 	/* send command, print response */
 	writeall(sock, buf, strlen(buf));
+	shutdown(sock, SHUT_WR);
 	while ((n = read(sock, resp, sizeof(resp))) > 0)
 		writeall(STDOUT_FILENO, resp, n);
 	close(sock);

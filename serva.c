@@ -768,6 +768,7 @@ handle_conn(int conn)
 	}
 
 	writeall(conn, resp, off);
+	shutdown(conn, SHUT_WR);
 	close(conn);
 }
 
