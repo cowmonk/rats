@@ -9,6 +9,10 @@
 #include <string.h>
 #include <unistd.h>
 
+#ifndef SOCK_PATH
+#define SOCK_PATH "/run/serva.sock"
+#endif
+
 static void
 usage(void)
 {
@@ -48,12 +52,12 @@ main(int argc, char *argv[])
 		eprintf("socket:");
 	memset(&addr, 0, sizeof(addr));
 	addr.sun_family = AF_UNIX;
-	strlcpy(addr.sun_path, "/run/serva.sock", sizeof(addr.sun_path));
+	strlcpy(addr.sun_path, SOCK_PATH, sizeof(addr.sun_path));
 	if (connect(sock, (struct sockaddr *)&addr, sizeof(addr)) < 0)
-		eprintf("connect /run/serva.sock:");
+		eprintf("connect %s:", SOCK_PATH);
 
 	/* build command line */
-	if (action == 's') {
+	if (action == 's' && argc == 0) {
 		strlcpy(buf, "s\n", sizeof(buf));
 	} else if (aflag) {
 		snprintf(buf, sizeof(buf), "%c a\n", action);

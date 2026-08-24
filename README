@@ -108,7 +108,7 @@ Talks to /run/serva.sock over a Unix socket.
 
 usage: svc [-udrkts] [-a] [name...]
         -u  bring up       -d  bring down      -r  restart
-        -k  kill (SIGKILL) -t  terminate       -s  status
+        -k  kill (SIGKILL) -t  terminate       -s  status (optionally per-service)
         -a  all services (with -u or -d) 
 
 slog: simple logging daemon.
@@ -226,9 +226,9 @@ manpages - someone else needs to do this or I'm going to die learning troff
 serva    -- primarily with handling errrors coming from the services itself,
          |  or at least returning ERR when that's the case.
          |
-         |- additionally, would be nice to return log/better status from
-            using svc when requesting the status of per service (e.g.
-            svc -s <svc_name>)
+         |- svc -s now reports per-service run count, uptime, and last
+            exit status/signal; svc -s <name> focuses a single service.
+            Streaming service logs through svc is still open.
 user     - still thinking on this one, I think it would be interesting to
            have something like dinit. It might be an overreach for this project
            but it can be used for "bloated" setups where users need dbus-session,

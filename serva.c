@@ -23,8 +23,12 @@
 #include <time.h>
 #include <unistd.h>
 
+#ifndef SVC_DIR
 #define SVC_DIR     "/etc/ssv"
+#endif
+#ifndef SOCK_PATH
 #define SOCK_PATH   "/run/serva.sock"
+#endif
 #define MAX_SVCS    256
 #define MAX_BACKOFF 60
 #define MAX_DEPS    16
@@ -41,6 +45,9 @@ struct Service {
 	time_t last_start;
 	time_t next_restart;
 	int backoff;
+	unsigned long nruns;
+	int last_exit;
+	int last_sig;
 	int want_up;
 	int noreset;
 	int once;
@@ -329,6 +336,8 @@ start_service(struct Service *s)
 	}
 
 	s->last_start = time(NULL);
+	s->last_exit = -1;
+	s->last_sig = 0;
 
 	/* fork service process */
 	pid = fork();
@@ -367,6 +376,7 @@ start_service(struct Service *s)
 		eprintf("exec %s:", runpath);
 	}
 	s->pid = pid;
+	s->nruns++;
 
 	/* fork logger process if pipe was created */
 	if (s->pipefd[0] >= 0) {
@@ -495,7 +505,7 @@ stop_cascade(void)
 }
 
 static void
-handle_child(pid_t pid)
+handle_child(pid_t pid, int status)
 {
 	size_t i;
 	time_t now;
@@ -506,6 +516,10 @@ handle_child(pid_t pid)
 
 		if (s->pid == pid) {
 			s->pid = 0;
+			if (WIFEXITED(status))
+				s->last_exit = WEXITSTATUS(status);
+			else if (WIFSIGNALED(status))
+				s->last_sig = WTERMSIG(status);
 			/* kill logger too - pipe is broken */
 			if (s->logpid > 0) {
 				kill(s->logpid, SIGTERM);
@@ -544,9 +558,10 @@ static void
 reap_all(void)
 {
 	pid_t pid;
+	int status;
 
-	while ((pid = waitpid(-1, NULL, WNOHANG)) > 0)
-		handle_child(pid);
+	while ((pid = waitpid(-1, &status, WNOHANG)) > 0)
+		handle_child(pid, status);
 }
 
 /* check_restarts: start services that are ready (deps met, backoff
@@ -622,14 +637,51 @@ status_str(struct Service *s)
 	return "DOWN";
 }
 
+/* format_status: append one status line for s to resp */
+static size_t
+format_status(struct Service *s, char *resp, size_t size, size_t off)
+{
+	char full[2 * NAME_MAX + 2];
+	size_t j;
+
+	snprintf(full, sizeof(full), "%s/%s", s->stage, s->name);
+	off += snprintf(resp + off, size - off,
+	    "%-32s %s%s pid=%d runs=%lu uptime=%lds",
+	    full,
+	    status_str(s),
+	    s->noreset ? " (noreset)" : "",
+	    s->pid,
+	    s->nruns,
+	    s->pid > 0 ? (long)(time(NULL) - s->last_start) : 0L);
+	if (s->last_exit >= 0)
+		off += snprintf(resp + off, size - off,
+		    " exit=%d", s->last_exit);
+	if (s->last_sig > 0)
+		off += snprintf(resp + off, size - off,
+		    " sig=%d", s->last_sig);
+	if (s->nneed > 0) {
+		off += snprintf(resp + off, size - off, " need=");
+		for (j = 0; j < s->nneed; j++)
+			off += snprintf(resp + off, size - off, "%s%s",
+			    j ? "," : "", s->need[j]);
+	}
+	if (s->nafter > 0) {
+		off += snprintf(resp + off, size - off, " after=");
+		for (j = 0; j < s->nafter; j++)
+			off += snprintf(resp + off, size - off, "%s%s",
+			    j ? "," : "", s->after[j]);
+	}
+	off += snprintf(resp + off, size - off, "\n");
+	return off;
+}
+
 /* handle_conn: process one control connection */
 static void
 handle_conn(int conn)
 {
 	char buf[4096], resp[8192], cmd, *name, *p;
-	char full[2 * NAME_MAX + 2];
 	ssize_t n;
-	size_t i, j, off;
+	size_t i, off;
 	struct Service *s;
 
 	n = read(conn, buf, sizeof(buf) - 1);
@@ -691,6 +743,7 @@ handle_conn(int conn)
 			off = snprintf(resp, sizeof(resp),
 			    "OK: %s down\n", name);
 		}
+		stop_cascade();
 		break;
 	case 'r':
 		s = find_service(name);
@@ -729,36 +782,21 @@ handle_conn(int conn)
 		break;
 	case 's':
 		off = 0;
+		if (name[0]) {
+			s = find_service(name);
+			if (!s) {
+				off = snprintf(resp, sizeof(resp),
+				    "ERR: no such service: %s\n", name);
+				break;
+			}
+			off = format_status(s, resp, sizeof(resp), 0);
+			break;
+		}
 		for (i = 0; i < nsvcs; i++) {
 			s = &svcs[i];
 			if (off + 128 >= sizeof(resp))
 				break;
-			snprintf(full, sizeof(full), "%s/%s",
-			    s->stage, s->name);
-			off += snprintf(resp + off, sizeof(resp) - off,
-			    "%-32s %s%s pid=%d",
-			    full,
-			    status_str(s),
-			    s->noreset ? " (noreset)" : "",
-			    s->pid);
-			if (s->nneed > 0) {
-				off += snprintf(resp + off,
-				    sizeof(resp) - off, " need=");
-				for (j = 0; j < s->nneed; j++)
-					off += snprintf(resp + off,
-					    sizeof(resp) - off, "%s%s",
-					    j ? "," : "", s->need[j]);
-			}
-			if (s->nafter > 0) {
-				off += snprintf(resp + off,
-				    sizeof(resp) - off, " after=");
-				for (j = 0; j < s->nafter; j++)
-					off += snprintf(resp + off,
-					    sizeof(resp) - off, "%s%s",
-					    j ? "," : "", s->after[j]);
-			}
-			off += snprintf(resp + off, sizeof(resp) - off,
-			    "\n");
+			off = format_status(s, resp, sizeof(resp), off);
 		}
 		break;
 	default:
