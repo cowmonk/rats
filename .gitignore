@@ -7,3 +7,7 @@ svc.o
 slog
 slog.o
 util.o
+
+tests/serva-test
+tests/serva.log
+tests/svc-test

@@ -1,0 +1,4 @@
+#!/bin/sh
+echo "oneshot ran"
+touch "$PWD.marker" 2>/dev/null || true
+exit 0

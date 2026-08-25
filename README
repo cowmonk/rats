@@ -212,6 +212,10 @@ Source Layout
 
     config.mk                   build configuration
     Makefile                    posix (should work with any *competent* make impl)
+    tests/
+       run.sh                   run this to test init suite (currently only serva/svc)
+       Makefile                 build serva/svc test binaries
+       ssv/*                    dummy ssv
     files/
        rc.*                     optional example configurations
        bin/*                    optional scripts to use along with RATS
