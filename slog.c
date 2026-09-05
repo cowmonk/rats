@@ -67,6 +67,9 @@ main(int argc, char *argv[])
 	default:  usage();
 	} ARGEND
 
+	if (argc)
+		usage();
+
 	mkdir_p(dir);
 
 	snprintf(cur, sizeof(cur), "%s/current", dir);

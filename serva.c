@@ -80,7 +80,7 @@ signal_handler(int sig)
 static void
 parse_arg(const char *name, char *arg)
 {
-	char *at;
+	const char *at;
 
 	at = strchr(name, '@');
 	if (at)
@@ -273,15 +273,17 @@ scan_services(void)
 			if (endswith_at(se->d_name))
 				continue;
 
-			snprintf(svcpath, sizeof(svcpath), "%s/%s",
-			    stagepath, se->d_name);
+			if (snprintf(svcpath, sizeof(svcpath), "%s/%s",
+			    stagepath, se->d_name) >= (int)sizeof(svcpath))
+				continue;
 			if (stat(svcpath, &sst) < 0)
 				continue;
 			if (!S_ISDIR(sst.st_mode))
 				continue;
 
 			/* run is required */
-			snprintf(tmp, sizeof(tmp), "%s/run", svcpath);
+			if (snprintf(tmp, sizeof(tmp), "%s/run", svcpath) >= (int)sizeof(tmp))
+				continue;
 			if (access(tmp, X_OK) < 0)
 				continue;
 
@@ -326,8 +328,11 @@ start_service(struct Service *s)
 	if (s->pid > 0)
 		return;
 
-	snprintf(runpath, sizeof(runpath), "%s/run", s->dir);
-	snprintf(logpath, sizeof(logpath), "%s/log", s->dir);
+	if (snprintf(runpath, sizeof(runpath), "%s/run", s->dir) >= (int)sizeof(runpath) ||
+	    snprintf(logpath, sizeof(logpath), "%s/log", s->dir) >= (int)sizeof(logpath)) {
+		weprintf("path too long: %s", s->dir);
+		return;
+	}
 
 	/* create logging pipe if needed */
 	if (s->has_logger && s->pipefd[0] < 0) {
@@ -480,8 +485,8 @@ restart_service(struct Service *s)
 static void
 stop_cascade(void)
 {
-	size_t i, j;
-	int found;
+	size_t i;
+	int j, found;
 
 	do {
 		found = 0;
@@ -642,7 +647,7 @@ static size_t
 format_status(struct Service *s, char *resp, size_t size, size_t off)
 {
 	char full[2 * NAME_MAX + 2];
-	size_t j;
+	int j;
 
 	snprintf(full, sizeof(full), "%s/%s", s->stage, s->name);
 	off += snprintf(resp + off, size - off,
