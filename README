@@ -113,7 +113,9 @@ usage: svc [-udrkts] [-a] [name...]
 
 slog: simple logging daemon.
 ----------------------------
-Reads stdin, writes to <dir>/current, rotates on size.
+Reads stdin, writes to <dir>/current, rotates on size. Existing current
+file contents count toward the threshold. Rotation happens after a read
+chunk is written, so a file may exceed the threshold by up to 4095 bytes.
 Rotated files: <dir>/0, <dir>/1, ..., <dir>/<n-1>
 
 example:
@@ -147,7 +149,7 @@ Requirements
 ============
 
     cc       POSIX.1-2008-compliant C compiler (pcc, etc)
-    make     POSIX make (aruu make, pdpmake, gmake, bmake)    
+    make     POSIX make (aruu make, pdpmake, gmake, bmake)
 
 
 Building
@@ -216,6 +218,7 @@ Source Layout
        run.sh                   run this to test init suite (currently only serva/svc)
        Makefile                 build serva/svc test binaries
        ssv/*                    dummy ssv
+       sandbox/                 temporary test state (not tracked)
     files/
        rc.*                     optional example configurations
        bin/*                    optional scripts to use along with RATS
@@ -237,7 +240,6 @@ user     - still thinking on this one, I think it would be interesting to
            have something like dinit. It might be an overreach for this project
            but it can be used for "bloated" setups where users need dbus-session,
            pipewire, etc. to run when booted.
-Makefile - it looks garbage, improving it would be nice
 
 
 Contribution

@@ -11,3 +11,6 @@ util.o
 tests/serva-test
 tests/serva.log
 tests/svc-test
+
+/tests/sandbox/
+/tests/slog-test
