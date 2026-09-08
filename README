@@ -230,7 +230,7 @@ TODO
 ====
 
 manpages - someone else needs to do this or I'm going to die learning troff
-serva    -- primarily with handling errrors coming from the services itself,
+serva    -- primarily with handling errors coming from the services itself,
          |  or at least returning ERR when that's the case.
          |
          |- svc -s now reports per-service run count, uptime, and last
