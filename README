@@ -111,6 +111,9 @@ usage: svc [-udrkts] [-a] [name...]
         -k  kill (SIGKILL) -t  terminate       -s  status (optionally per-service)
         -a  all services (with -u or -d) 
 
+Multiple names are handled one at a time. svc exits with status 1 if a
+request fails or serva returns ERR, and status 2 if closing stdout fails.
+
 slog: simple logging daemon.
 ----------------------------
 Reads stdin, writes to <dir>/current, rotates on size. Existing current
@@ -152,6 +155,20 @@ Requirements
     make     POSIX make (aruu make, pdpmake, gmake, bmake)
 
 
+Portability across UNIX systems
+==============================
+
+origo currently uses Linux mount and reboot interfaces. The example rc
+scripts also use Linux utilities. serva and svc target POSIX.1-2008;
+serva additionally uses XSI realpath(). Other UNIX systems have not been
+tested.
+
+Control socket access currently relies on pathname permissions. Linux
+enforces these permissions, but POSIX does not require this. Supporting
+another UNIX system requires checking its socket access rules or adding
+peer credential checks. See [unix(7)](https://man7.org/linux/man-pages/man7/unix.7.html).
+
+
 Building
 ========
 
@@ -163,6 +180,13 @@ Configuration is in config.mk, you can override compile flags via make.
 
 NOTE: by default RATS will try to build statically, you can override this by passing `LDFLAGS=`.
 Basically, just make LDFLAGS empty.
+
+Run the integration tests with:
+
+    make check
+
+Tests use a separate directory under tests/sandbox/ for each run and
+leave their logs there. The tracked service fixtures are copied into it.
 
 
 Installation
@@ -281,4 +305,3 @@ See ./LICENSE for details.
 Portions of this software are partially based on code written by Aruu authors and
 contributors, with portions within itself derived from various BSD/MIT-licensed 
 open source projects.
-
