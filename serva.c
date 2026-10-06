@@ -1,7 +1,7 @@
 /* serva: a simple service supervisor */
 
-#ifndef _GNU_SOURCE
-#define _GNU_SOURCE /* needed for PATH_MAX */
+#ifndef _XOPEN_SOURCE
+#define _XOPEN_SOURCE 700
 #endif
 
 #include "util.h"
@@ -64,16 +64,37 @@ static size_t nsvcs;
 static int sigpipe[2];
 static volatile sig_atomic_t got_term;
 
+static void
+cloexec(int fd)
+{
+	int flags;
+
+	flags = fcntl(fd, F_GETFD);
+	if (flags < 0 || fcntl(fd, F_SETFD, flags | FD_CLOEXEC) < 0)
+		eprintf("fcntl FD_CLOEXEC:");
+}
+
+static void
+sleep_briefly(void)
+{
+	struct timespec delay = { 0, 100000000L };
+
+	while (nanosleep(&delay, &delay) < 0 && errno == EINTR)
+		;
+}
+
 /* signal handler: wake self-pipe on SIGCHLD, flag SIGTERM */
 static void
 signal_handler(int sig)
 {
 	char c;
+	int saved_errno = errno;
 
 	if (sig == SIGTERM)
 		got_term = 1;
 	c = 0;
 	write(sigpipe[1], &c, 1);
+	errno = saved_errno;
 }
 
 /* parse @-templates: "tty@tty1" -> arg "tty1" */
@@ -336,8 +357,12 @@ start_service(struct Service *s)
 
 	/* create logging pipe if needed */
 	if (s->has_logger && s->pipefd[0] < 0) {
-		if (pipe(s->pipefd) < 0)
+		if (pipe(s->pipefd) < 0) {
 			weprintf("pipe:");
+			return;
+		}
+		cloexec(s->pipefd[0]);
+		cloexec(s->pipefd[1]);
 	}
 
 	s->last_start = time(NULL);
@@ -355,6 +380,7 @@ start_service(struct Service *s)
 
 		sigemptyset(&empty);
 		sigprocmask(SIG_SETMASK, &empty, NULL);
+		signal(SIGPIPE, SIG_DFL);
 		setsid();
 
 		if (chdir(s->dir) < 0)
@@ -393,6 +419,7 @@ start_service(struct Service *s)
 
 			sigemptyset(&empty);
 			sigprocmask(SIG_SETMASK, &empty, NULL);
+			signal(SIGPIPE, SIG_DFL);
 
 			if (chdir(s->dir) < 0)
 				eprintf("chdir %s:", s->dir);
@@ -432,7 +459,7 @@ stop_service(struct Service *s)
 				break;
 			if (i == 40)
 				kill(s->pid, SIGKILL);
-			usleep(100000);
+			sleep_briefly();
 		}
 		s->pid = 0;
 	}
@@ -459,7 +486,7 @@ stop_for_dep(struct Service *s)
 				break;
 			if (i == 40)
 				kill(s->pid, SIGKILL);
-			usleep(100000);
+			sleep_briefly();
 		}
 		s->pid = 0;
 	}
@@ -642,52 +669,50 @@ status_str(struct Service *s)
 	return "DOWN";
 }
 
-/* format_status: append one status line for s to resp */
-static size_t
-format_status(struct Service *s, char *resp, size_t size, size_t off)
+/* format_status: write one service's status to the control stream */
+static void
+format_status(struct Service *s, FILE *out)
 {
 	char full[2 * NAME_MAX + 2];
 	int j;
 
 	snprintf(full, sizeof(full), "%s/%s", s->stage, s->name);
-	off += snprintf(resp + off, size - off,
-	    "%-32s %s%s pid=%d runs=%lu uptime=%lds",
+	fprintf(out,
+	    "%-32s %s%s pid=%ld runs=%lu uptime=%lds",
 	    full,
 	    status_str(s),
 	    s->noreset ? " (noreset)" : "",
-	    s->pid,
+	    (long)s->pid,
 	    s->nruns,
 	    s->pid > 0 ? (long)(time(NULL) - s->last_start) : 0L);
 	if (s->last_exit >= 0)
-		off += snprintf(resp + off, size - off,
-		    " exit=%d", s->last_exit);
+		fprintf(out, " exit=%d", s->last_exit);
 	if (s->last_sig > 0)
-		off += snprintf(resp + off, size - off,
-		    " sig=%d", s->last_sig);
+		fprintf(out, " sig=%d", s->last_sig);
 	if (s->nneed > 0) {
-		off += snprintf(resp + off, size - off, " need=");
+		fprintf(out, " need=");
 		for (j = 0; j < s->nneed; j++)
-			off += snprintf(resp + off, size - off, "%s%s",
+			fprintf(out, "%s%s",
 			    j ? "," : "", s->need[j]);
 	}
 	if (s->nafter > 0) {
-		off += snprintf(resp + off, size - off, " after=");
+		fprintf(out, " after=");
 		for (j = 0; j < s->nafter; j++)
-			off += snprintf(resp + off, size - off, "%s%s",
+			fprintf(out, "%s%s",
 			    j ? "," : "", s->after[j]);
 	}
-	off += snprintf(resp + off, size - off, "\n");
-	return off;
+	fputc('\n', out);
 }
 
 /* handle_conn: process one control connection */
 static void
 handle_conn(int conn)
 {
-	char buf[4096], resp[8192], cmd, *name, *p;
+	char buf[4096], cmd, *name, *p;
 	ssize_t n;
-	size_t i, off;
+	size_t i;
 	struct Service *s;
+	FILE *out;
 
 	n = read(conn, buf, sizeof(buf) - 1);
 	if (n <= 0) {
@@ -695,6 +720,12 @@ handle_conn(int conn)
 		return;
 	}
 	buf[n] = '\0';
+	out = fdopen(conn, "w");
+	if (!out) {
+		weprintf("fdopen:");
+		close(conn);
+		return;
+	}
 
 	p = strchr(buf, '\n');
 	if (p)
@@ -712,13 +743,11 @@ handle_conn(int conn)
 				svcs[i].want_up = 1;
 			}
 			check_restarts();
-			off = snprintf(resp, sizeof(resp),
-			    "OK: started all\n");
+			fprintf(out, "OK: started all\n");
 		} else {
 			s = find_service(name);
 			if (!s) {
-				off = snprintf(resp, sizeof(resp),
-				    "ERR: no such service: %s\n", name);
+				fprintf(out, "ERR: no such service: %s\n", name);
 				break;
 			}
 			/* explicit svc -u overrides down and deps */
@@ -727,92 +756,73 @@ handle_conn(int conn)
 			s->next_restart = 0;
 			s->backoff = 0;
 			start_service(s);
-			off = snprintf(resp, sizeof(resp),
-			    "OK: %s up\n", name);
+			fprintf(out, "OK: %s up\n", name);
 		}
 		break;
 	case 'd':
 		if (strcmp(name, "a") == 0) {
 			for (i = 0; i < nsvcs; i++)
 				stop_service(&svcs[i]);
-			off = snprintf(resp, sizeof(resp),
-			    "OK: stopped all\n");
+			fprintf(out, "OK: stopped all\n");
 		} else {
 			s = find_service(name);
 			if (!s) {
-				off = snprintf(resp, sizeof(resp),
-				    "ERR: no such service: %s\n", name);
+				fprintf(out, "ERR: no such service: %s\n", name);
 				break;
 			}
 			stop_service(s);
-			off = snprintf(resp, sizeof(resp),
-			    "OK: %s down\n", name);
+			fprintf(out, "OK: %s down\n", name);
 		}
 		stop_cascade();
 		break;
 	case 'r':
 		s = find_service(name);
 		if (!s) {
-			off = snprintf(resp, sizeof(resp),
-			    "ERR: no such service: %s\n", name);
+			fprintf(out, "ERR: no such service: %s\n", name);
 			break;
 		}
 		restart_service(s);
-		off = snprintf(resp, sizeof(resp),
-		    "OK: %s restarted\n", name);
+		fprintf(out, "OK: %s restarted\n", name);
 		break;
 	case 'k':
 		s = find_service(name);
 		if (!s) {
-			off = snprintf(resp, sizeof(resp),
-			    "ERR: no such service: %s\n", name);
+			fprintf(out, "ERR: no such service: %s\n", name);
 			break;
 		}
 		if (s->pid > 0)
 			kill(s->pid, SIGKILL);
-		off = snprintf(resp, sizeof(resp),
-		    "OK: %s killed\n", name);
+		fprintf(out, "OK: %s killed\n", name);
 		break;
 	case 't':
 		s = find_service(name);
 		if (!s) {
-			off = snprintf(resp, sizeof(resp),
-			    "ERR: no such service: %s\n", name);
+			fprintf(out, "ERR: no such service: %s\n", name);
 			break;
 		}
 		if (s->pid > 0)
 			kill(s->pid, SIGTERM);
-		off = snprintf(resp, sizeof(resp),
-		    "OK: %s terminated\n", name);
+		fprintf(out, "OK: %s terminated\n", name);
 		break;
 	case 's':
-		off = 0;
 		if (name[0]) {
 			s = find_service(name);
 			if (!s) {
-				off = snprintf(resp, sizeof(resp),
-				    "ERR: no such service: %s\n", name);
+				fprintf(out, "ERR: no such service: %s\n", name);
 				break;
 			}
-			off = format_status(s, resp, sizeof(resp), 0);
+			format_status(s, out);
 			break;
 		}
-		for (i = 0; i < nsvcs; i++) {
-			s = &svcs[i];
-			if (off + 128 >= sizeof(resp))
-				break;
-			off = format_status(s, resp, sizeof(resp), off);
-		}
+		for (i = 0; i < nsvcs && !ferror(out); i++)
+			format_status(&svcs[i], out);
 		break;
 	default:
-		off = snprintf(resp, sizeof(resp),
-		    "ERR: unknown command\n");
+		fprintf(out, "ERR: unknown command\n");
 		break;
 	}
 
-	writeall(conn, resp, off);
-	shutdown(conn, SHUT_WR);
-	close(conn);
+	fshut(out, SOCK_PATH);
 }
 
 static void
@@ -832,14 +842,20 @@ main(void)
 	struct sockaddr_un addr;
 	struct pollfd pfds[2];
 	struct sigaction sa;
+	mode_t mask;
 	char c;
 	size_t i;
 
 	/* self-pipe for signal integration with poll */
 	if (pipe(sigpipe) < 0)
 		eprintf("pipe:");
-	fcntl(sigpipe[0], F_SETFL, O_NONBLOCK);
-	fcntl(sigpipe[1], F_SETFL, O_NONBLOCK);
+	cloexec(sigpipe[0]);
+	cloexec(sigpipe[1]);
+	if (fcntl(sigpipe[0], F_SETFL, O_NONBLOCK) < 0 ||
+	    fcntl(sigpipe[1], F_SETFL, O_NONBLOCK) < 0)
+		eprintf("fcntl O_NONBLOCK:");
+	if (signal(SIGPIPE, SIG_IGN) == SIG_ERR)
+		eprintf("signal SIGPIPE:");
 
 	/* install signal handlers */
 	memset(&sa, 0, sizeof(sa));
@@ -855,15 +871,20 @@ main(void)
 	sock = socket(AF_UNIX, SOCK_STREAM, 0);
 	if (sock < 0)
 		eprintf("socket:");
+	cloexec(sock);
 	memset(&addr, 0, sizeof(addr));
 	addr.sun_family = AF_UNIX;
-	strlcpy(addr.sun_path, SOCK_PATH, sizeof(addr.sun_path));
+	if (strlcpy(addr.sun_path, SOCK_PATH, sizeof(addr.sun_path)) >= sizeof(addr.sun_path))
+		eprintf("socket path too long: %s\n", SOCK_PATH);
 	unlink(SOCK_PATH);
+	mask = umask(0077);
 	if (bind(sock, (struct sockaddr *)&addr, sizeof(addr)) < 0)
 		eprintf("bind %s:", SOCK_PATH);
+	umask(mask);
+	if (chmod(SOCK_PATH, 0600) < 0)
+		eprintf("chmod %s:", SOCK_PATH);
 	if (listen(sock, 16) < 0)
 		eprintf("listen:");
-	chmod(SOCK_PATH, 0600);
 
 	/* mark all non-down services as wanting to be up */
 	for (i = 0; i < nsvcs; i++) {
@@ -901,8 +922,10 @@ main(void)
 
 		if (pfds[0].revents & POLLIN) {
 			conn = accept(sock, NULL, NULL);
-			if (conn >= 0)
+			if (conn >= 0) {
+				cloexec(conn);
 				handle_conn(conn);
+			}
 		}
 
 		if (pfds[1].revents & POLLIN) {
