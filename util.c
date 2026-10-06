@@ -1,7 +1,7 @@
 /* Repackaged small subset of libutil/%.c to one util.c */
 
-#ifndef _GNU_SOURCE
-#define _GNU_SOURCE /* needed for strdup */
+#ifndef _POSIX_C_SOURCE
+#define _POSIX_C_SOURCE 200809L
 #endif
 
 #include "util.h"
@@ -288,6 +288,8 @@ writeall(int fd, const void *buf, size_t len)
 
 	while (len) {
 		n = write(fd, p, len);
+		if (n < 0 && errno == EINTR)
+			continue;
 		if (n <= 0)
 			return n;
 		p += n;
@@ -321,4 +323,3 @@ fshut(FILE *fp, const char *fname)
 
 	return ret;
 }
-
