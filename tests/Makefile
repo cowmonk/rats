@@ -4,23 +4,30 @@
 include ../config.mk
 
 TOP = ..
-CC ?= cc
+TEST_DIR = sandbox
 
-all: serva-test svc-test
+all: $(TEST_DIR)/serva-test $(TEST_DIR)/svc-test $(TEST_DIR)/control-test
 
-serva-test: $(TOP)/serva.c $(TOP)/util.o
-	$(CC) $(CFLAGS) -DSVC_DIR='"$(CURDIR)/ssv"' \
-	    -DSOCK_PATH='"$(CURDIR)/serva.sock"' \
-	    $(LDFLAGS) -o $@ $(TOP)/serva.c $(TOP)/util.o
+$(TEST_DIR)/serva-test: $(TOP)/serva.c $(TOP)/util.c $(TOP)/util.h Makefile $(TOP)/config.mk
+	mkdir -p "$(TEST_DIR)"
+	$(CC) $(CPPFLAGS) $(CFLAGS) -DSVC_DIR='"$(TEST_DIR)/ssv"' \
+	    -DSOCK_PATH='"$(TEST_DIR)/serva.sock"' \
+	    $(LDFLAGS) -o $@ $(TOP)/serva.c $(TOP)/util.c $(LDLIBS)
 
-svc-test: $(TOP)/svc.c $(TOP)/util.o
-	$(CC) $(CFLAGS) -DSOCK_PATH='"$(CURDIR)/serva.sock"' \
-	    $(LDFLAGS) -o $@ $(TOP)/svc.c $(TOP)/util.o
+$(TEST_DIR)/svc-test: $(TOP)/svc.c $(TOP)/util.c $(TOP)/util.h $(TOP)/arg.h Makefile $(TOP)/config.mk
+	mkdir -p "$(TEST_DIR)"
+	$(CC) $(CPPFLAGS) $(CFLAGS) -DSOCK_PATH='"$(TEST_DIR)/serva.sock"' \
+	    $(LDFLAGS) -o $@ $(TOP)/svc.c $(TOP)/util.c $(LDLIBS)
 
-$(TOP)/util.o: $(TOP)/util.c $(TOP)/util.h
-	cd $(TOP) && $(MAKE) util.o
+$(TEST_DIR)/control-test: control.c Makefile $(TOP)/config.mk
+	mkdir -p "$(TEST_DIR)"
+	$(CC) $(CPPFLAGS) $(CFLAGS) -DSOCK_PATH='"$(TEST_DIR)/serva.sock"' \
+	    $(LDFLAGS) -o $@ control.c $(LDLIBS)
+
+check:
+	MAKE='$(MAKE)' ./run.sh
 
 clean:
 	rm -f serva-test svc-test serva.log
-
-.PHONY: all clean run-tests
+	rm -f sandbox/serva-test sandbox/svc-test sandbox/control-test
+	rm -f sandbox/*/serva-test sandbox/*/svc-test sandbox/*/control-test

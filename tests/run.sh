@@ -1,16 +1,19 @@
 #!/bin/sh
 # tests/run.sh: integration test for serva + svc
 #
-# Boots a sandboxed serva against ./ssv and drives it with svc-test.
+# Copies ./ssv into a sandbox and drives serva with svc-test.
 # No root needed: everything lives under tests/.
 
 set -u
 cd "$(dirname "$0")"
 
-SOCK="$PWD/serva.sock"
-SERVA=./serva-test
-SVC=./svc-test
-LOG=serva.log
+SANDBOX="$PWD/sandbox/$$"
+SOCK="$SANDBOX/serva.sock"
+SERVA="$SANDBOX/serva-test"
+SVC="$SANDBOX/svc-test"
+LOG="$SANDBOX/serva.log"
+CONTROL_PROBE="$SANDBOX/control-test"
+export CONTROL_PROBE
 PASS=0
 FAIL=0
 
@@ -19,58 +22,58 @@ ok()   { PASS=$((PASS + 1)); say "ok   - $1"; }
 bad()  { FAIL=$((FAIL + 1)); say "FAIL - $1"; }
 
 cleanup() {
-	[ -n "${SERVA_PID:-}" ] && kill "$SERVA_PID" 2>/dev/null
-	wait 2>/dev/null
+	if [ -n "${SERVA_PID:-}" ]; then
+		kill "$SERVA_PID" 2>/dev/null
+		wait "$SERVA_PID" 2>/dev/null
+	fi
 	rm -f "$SOCK"
 }
-trap cleanup EXIT
+trap cleanup 0
+trap 'exit 1' HUP INT TERM
 
 # --- setup sandbox -----------------------------------------------------------
-rm -rf ssv
-mkdir -p ssv/boot/crashme ssv/default/sleeper ssv/default/oneshot ssv/default/depender/need
+umask 077
+mkdir -p "$PWD/sandbox" || exit 1
+mkdir "$SANDBOX" || exit 1
+cp -R ssv "$SANDBOX/ssv" || exit 1
 
-cat > ssv/boot/crashme/run <<'EOF'
+for i in 1 2 3 4 5 6 7 8; do
+	service="$SANDBOX/ssv/default/status$i"
+	mkdir -p "$service/need" "$service/after" || exit 1
+	cp ssv/default/oneshot/run "$service/run" || exit 1
+	touch "$service/down"
+	for j in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16; do
+		dep=$(printf 'dep%02d_%057d' "$j" 0)
+		touch "$service/need/$dep" "$service/after/$dep"
+	done
+done
+
+mkdir "$SANDBOX/ssv/default/fdprobe" || exit 1
+cat > "$SANDBOX/ssv/default/fdprobe/run" <<'EOF'
 #!/bin/sh
-echo "crashme starting"
-exit 42
+"$CONTROL_PROBE" >probe.out
+exec sleep 30
 EOF
-
-cat > ssv/default/sleeper/run <<'EOF'
+cat > "$SANDBOX/ssv/default/fdprobe/log" <<'EOF'
 #!/bin/sh
-echo "sleeper starting"
-trap 'exit 0' TERM
-while :; do sleep 1; done
+"$CONTROL_PROBE" >logger.out
+exec cat >/dev/null
 EOF
-
-cat > ssv/default/oneshot/run <<'EOF'
-#!/bin/sh
-echo "oneshot ran"
-touch "$PWD.marker" 2>/dev/null || true
-exit 0
-EOF
-touch ssv/default/oneshot/once
-
-cat > ssv/default/depender/run <<'EOF'
-#!/bin/sh
-trap 'exit 0' TERM
-while :; do sleep 1; done
-EOF
-touch ssv/default/depender/need/sleeper
-
-chmod +x ssv/*/*/run
+touch "$SANDBOX/ssv/default/fdprobe/down" "$SANDBOX/ssv/default/fdprobe/once"
+chmod +x "$SANDBOX/ssv/default/fdprobe/run" "$SANDBOX/ssv/default/fdprobe/log"
 
 # --- build + launch ----------------------------------------------------------
-make -s all || { say "build failed"; exit 1; }
+"${MAKE:-make}" -s TEST_DIR="$SANDBOX" all || { say "build failed"; exit 1; }
 
-"$SERVA" >"$LOG" 2>&1 &
+(umask 000; exec "$SERVA") >"$LOG" 2>&1 &
 SERVA_PID=$!
 
 for i in 1 2 3 4 5 6 7 8 9 10; do
 	[ -S "$SOCK" ] && break
-	sleep 0.2
+	sleep 1
 done
 [ -S "$SOCK" ] || { bad "serva socket never appeared"; exit 1; }
-sleep 1   # let services start (and crashme crash once)
+sleep 2   # let services start and crashme restart
 
 # --- tests -------------------------------------------------------------------
 out=$("$SVC" -s)
@@ -108,7 +111,7 @@ case $out in
 *) bad "oneshot should be DONE: $out" ;;
 esac
 
-out=$("$SVC" -d sleeper 2>&1) && sleep 0.5 && out=$("$SVC" -s sleeper)
+out=$("$SVC" -d sleeper 2>&1) && sleep 1 && out=$("$SVC" -s sleeper)
 case $out in
 *DOWN*) ok "svc -d brings sleeper down" ;;
 *) bad "sleeper should be DOWN after svc -d: $out" ;;
@@ -120,7 +123,7 @@ case $out in
 *) bad "depender should be WAIT after sleeper down: $out" ;;
 esac
 
-"$SVC" -u sleeper >/dev/null && sleep 0.5
+"$SVC" -u sleeper >/dev/null && sleep 1
 out=$("$SVC" -s depender)
 case $out in
 *RUN*) ok "depender restarts when dep comes back" ;;
@@ -133,12 +136,59 @@ case $out in
 *) bad "expected ERR for unknown service: $out" ;;
 esac
 
-out=$("$SVC" -r sleeper 2>&1) && sleep 0.5
+out=$("$SVC" -r sleeper 2>&1) && sleep 1
 runs=$("$SVC" -s sleeper | sed -n 's/.*runs=\([0-9]*\).*/\1/p')
 [ "${runs:-0}" -ge 2 ] && ok "svc -r restarts sleeper (runs=$runs)" \
 	|| bad "svc -r did not restart sleeper: runs=${runs:-?}"
 
+out=$("$SVC" -s)
+rows=$(printf '%s\n' "$out" | sed -n '/default\/status[1-8]/p' | wc -l)
+[ "$rows" -eq 8 ] && ok "large status response includes every service" \
+	|| bad "large status response lost services: rows=$rows"
+
+longname=$(printf '%05000d' 0)
+if out=$("$SVC" -u "$longname" 2>&1); then
+	bad "oversized service name should fail"
+else
+	case $out in
+	*'command too long'*) ok "oversized service name is rejected safely" ;;
+	*) bad "unexpected error for oversized service name: $out" ;;
+	esac
+fi
+
+out=$("$SVC" -s sleeper depender)
+case $out in
+*default/sleeper*RUN*default/depender*RUN*) ok "svc handles multiple service names" ;;
+*) bad "svc did not return both services: $out" ;;
+esac
+
+if "$SVC" -s nosuchsvc >/dev/null; then
+	bad "unknown service should return failure"
+else
+	ok "unknown service returns failure"
+fi
+
+"$CONTROL_PROBE" -mode && ok "control socket has mode 0600 under umask 000" \
+	|| bad "control socket permissions are too broad"
+
+"$SVC" -u fdprobe >/dev/null
+sleep 1
+for file in probe.out logger.out; do
+	out=$(cat "$SANDBOX/ssv/default/fdprobe/$file" 2>/dev/null)
+	case $out in
+	'OK: no supervisor descriptors inherited') ok "$file: supervisor descriptors closed and SIGPIPE restored" ;;
+	*) bad "$file: unexpected inherited state: $out" ;;
+	esac
+done
+
+if "$CONTROL_PROBE" -disconnect && "$SVC" -s sleeper >/dev/null; then
+	ok "serva survives a client disconnect during its response"
+else
+	bad "serva died after a client disconnected"
+fi
+
 # --- summary -----------------------------------------------------------------
 say ""
 say "passed: $PASS  failed: $FAIL"
+say "test files: $SANDBOX"
 [ "$FAIL" -eq 0 ]
