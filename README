@@ -2,7 +2,7 @@ RAdix iniT Suite
 ================
 
 RATS is an init suite forked from sinit to extend the features
-so it could be used standalone.
+so it could be used "standalone".
 
 Why?
 ----
@@ -11,6 +11,13 @@ supervision, dependency management, logging, etc all in one instead
 of using separate utilities bootstrapped together. My old setup was
 using sinit + nitro with a bunch of shell scripting to handle things
 I felt that the init is okay to do.
+
+Additionally, this project was also heavily influenced by the fact
+that an upcoming project required a good init system. While sinit
+is amazing and works great for personal usage, there needed to be
+a bit more if you wanted to use it in a scalable approach while
+being intergrated reasonably well. Also, it's fun to write your
+own init system!
 
 General boot process
 --------------------
@@ -156,7 +163,7 @@ Requirements
 
 
 Portability across UNIX systems
-==============================
+===============================
 
 origo currently uses Linux mount and reboot interfaces. The example rc
 scripts also use Linux utilities. serva and svc target POSIX.1-2008;
