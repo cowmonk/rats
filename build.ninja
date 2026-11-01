@@ -1,0 +1,64 @@
+include config.mk
+
+cc = $${CC:-$CC}
+cppflags = $${CPPFLAGS-$CPPFLAGS}
+cflags = $${CFLAGS-$CFLAGS}
+ldflags = $${LDFLAGS-$LDFLAGS}
+ldlibs = $${LDLIBS-$LDLIBS}
+destdir = $${DESTDIR-$DESTDIR}
+prefix = $${PREFIX-$PREFIX}
+sbindir = $${SBIN_DIR-$SBIN_DIR}
+bindir = $${BIN_DIR-$BIN_DIR}
+
+rule cc
+        command = $cc $cppflags $cflags -std=c99 -MMD -MF $out.d -c -o $out $in
+        description = CC $out
+        depfile = $out.d
+        deps = gcc
+
+rule link
+        command = $cc $ldflags -o $out $in $ldlibs
+        description = LINK $out
+
+rule clean
+        command = rm -f origo serva svc slog $
+                origo.o serva.o svc.o slog.o util.o $
+                origo.o.d serva.o.d svc.o.d slog.o.d util.o.d
+        description = CLEAN
+
+rule install_bin
+        command = mkdir -p "$destdir$prefix$sbindir" "$destdir$prefix$bindir" && $
+                cp -f origo serva "$destdir$prefix$sbindir/" && $
+                cp -f svc slog "$destdir$prefix$bindir/" && $
+                chmod 755 "$destdir$prefix$sbindir/origo" "$destdir$prefix$sbindir/serva" $
+                        "$destdir$prefix$bindir/svc" "$destdir$prefix$bindir/slog" && $
+        mkdir -p "$destdir/etc/ssv/boot" "$destdir/etc/ssv/default"
+        description = INSTALL binaries
+
+rule install_rc
+        command = mkdir -p "$destdir/etc" "$destdir$prefix$bindir" && $
+                cp -f files/rc.boot files/rc.local files/rc.shutdown files/rc.single "$destdir/etc/" && $
+                chmod 755 "$destdir/etc/rc.boot" "$destdir/etc/rc.local" $
+        	        "$destdir/etc/rc.shutdown" "$destdir/etc/rc.single" && $
+                cp -f files/bin/poweroff files/bin/reboot "$destdir$prefix$bindir/" && $
+        chmod 755 "$destdir$prefix$bindir/poweroff" "$destdir$prefix$bindir/reboot"
+        description = INSTALL example files
+
+build origo.o: cc origo.c
+build serva.o: cc serva.c
+build svc.o: cc svc.c
+build slog.o: cc slog.c
+build util.o: cc util.c
+
+build origo: link origo.o util.o
+build serva: link serva.o util.o
+build svc: link svc.o util.o
+build slog: link slog.o util.o
+
+build all: phony origo serva svc slog
+build force: phony
+build clean: clean | force
+build install: install_bin origo serva svc slog | force
+build install-files: install_rc files/rc.boot files/rc.local files/rc.shutdown files/rc.single files/bin/poweroff files/bin/reboot | force
+
+default all

@@ -7,6 +7,8 @@ svc.o
 slog
 slog.o
 util.o
+.ninja_deps
+.ninja_log
 
 tests/serva-test
 tests/serva.log
