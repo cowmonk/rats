@@ -39,7 +39,7 @@ rule install_rc
         command = mkdir -p "$destdir/etc" "$destdir$prefix$bindir" && $
                 cp -f files/rc.boot files/rc.local files/rc.shutdown files/rc.single "$destdir/etc/" && $
                 chmod 755 "$destdir/etc/rc.boot" "$destdir/etc/rc.local" $
-        	        "$destdir/etc/rc.shutdown" "$destdir/etc/rc.single" && $
+                        "$destdir/etc/rc.shutdown" "$destdir/etc/rc.single" && $
                 cp -f files/bin/poweroff files/bin/reboot "$destdir$prefix$bindir/" && $
         chmod 755 "$destdir$prefix$bindir/poweroff" "$destdir$prefix$bindir/reboot"
         description = INSTALL example files
