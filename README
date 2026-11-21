@@ -113,10 +113,11 @@ svc: control client for serva.
 ------------------------------
 Talks to /run/serva.sock over a Unix socket.
 
-usage: svc [-udrkts] [-a] [name...]
+usage: svc [-udexrkts] [-a] [name...]
         -u  bring up       -d  bring down      -r  restart
+        -e  enable at boot -x  disable at boot
         -k  kill (SIGKILL) -t  terminate       -s  status (optionally per-service)
-        -a  all services (with -u or -d) 
+        -a  all services (with -u, -d, -e or -x)
 
 Multiple names are handled one at a time. svc exits with status 1 if a
 request fails or serva returns ERR, and status 2 if closing stdout fails.

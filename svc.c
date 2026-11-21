@@ -21,7 +21,7 @@
 static void
 usage(void)
 {
-	eprintf("usage: %s [-udrkts] [-a] [service...]\n", argv0);
+	eprintf("usage: %s [-udexrkts] [-a] [service...]\n", argv0);
 }
 
 static int
@@ -81,6 +81,8 @@ main(int argc, char *argv[])
 	ARGBEGIN {
 	case 'u': action = 'u'; break;
 	case 'd': action = 'd'; break;
+	case 'e': action = 'e'; break;
+	case 'x': action = 'x'; break;
 	case 'r': action = 'r'; break;
 	case 'k': action = 'k'; break;
 	case 't': action = 't'; break;
@@ -91,7 +93,7 @@ main(int argc, char *argv[])
 
 	if (!action || (action != 's' && !aflag && argc == 0))
 		usage();
-	if (aflag && (argc != 0 || (action != 'u' && action != 'd')))
+	if (aflag && (argc != 0 || (action != 'u' && action != 'd' && action != 'e' && action != 'x')))
 		usage();
 
 	if (aflag || argc == 0)

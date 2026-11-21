@@ -120,6 +120,21 @@ has_file(const char *dir, const char *name)
 	return access(path, F_OK) == 0;
 }
 
+/* set_down: persist whether a service starts at boot */
+static void
+set_down(struct Service *s, int down)
+{
+	char path[PATH_MAX];
+
+	if (snprintf(path, sizeof(path), "%s/down", s->dir) >= (int)sizeof(path))
+		return;
+	if (down)
+		close(open(path, O_WRONLY | O_CREAT, 0644));
+	else
+		unlink(path);
+	s->down = down;
+}
+
 /* svc_cmp: sort by (stage, name) */
 static int
 svc_cmp(const void *a, const void *b)
@@ -656,10 +671,10 @@ compute_timeout(void)
 static const char *
 status_str(struct Service *s)
 {
-	if (s->down)
-		return "DOWN*";
 	if (s->pid > 0)
 		return "RUN";
+	if (s->down)
+		return "DOWN*";
 	if (s->want_up && !deps_met(s))
 		return "WAIT*";
 	if (s->want_up)
@@ -678,10 +693,12 @@ format_status(struct Service *s, FILE *out)
 
 	snprintf(full, sizeof(full), "%s/%s", s->stage, s->name);
 	fprintf(out,
-	    "%-32s %s%s pid=%ld runs=%lu uptime=%lds",
+	    "%-32s %s%s enabled=%s running=%s pid=%ld runs=%lu uptime=%lds",
 	    full,
 	    status_str(s),
 	    s->noreset ? " (noreset)" : "",
+	    s->down ? "no" : "yes",
+	    s->pid > 0 ? "yes" : "no",
 	    (long)s->pid,
 	    s->nruns,
 	    s->pid > 0 ? (long)(time(NULL) - s->last_start) : 0L);
@@ -750,8 +767,7 @@ handle_conn(int conn)
 				fprintf(out, "ERR: no such service: %s\n", name);
 				break;
 			}
-			/* explicit svc -u overrides down and deps */
-			s->down = 0;
+			/* explicit svc -u starts now without changing boot state */
 			s->want_up = 1;
 			s->next_restart = 0;
 			s->backoff = 0;
@@ -772,6 +788,49 @@ handle_conn(int conn)
 			}
 			stop_service(s);
 			fprintf(out, "OK: %s down\n", name);
+		}
+		stop_cascade();
+		break;
+	case 'e':
+		if (strcmp(name, "a") == 0) {
+			for (i = 0; i < nsvcs; i++) {
+				set_down(&svcs[i], 0);
+				svcs[i].want_up = 1;
+				svcs[i].next_restart = 0;
+				svcs[i].backoff = 0;
+			}
+			check_restarts();
+			fprintf(out, "OK: enabled all\n");
+		} else {
+			s = find_service(name);
+			if (!s) {
+				fprintf(out, "ERR: no such service: %s\n", name);
+				break;
+			}
+			set_down(s, 0);
+			s->want_up = 1;
+			s->next_restart = 0;
+			s->backoff = 0;
+			start_service(s);
+			fprintf(out, "OK: %s enabled\n", name);
+		}
+		break;
+	case 'x':
+		if (strcmp(name, "a") == 0) {
+			for (i = 0; i < nsvcs; i++) {
+				stop_service(&svcs[i]);
+				set_down(&svcs[i], 1);
+			}
+			fprintf(out, "OK: disabled all\n");
+		} else {
+			s = find_service(name);
+			if (!s) {
+				fprintf(out, "ERR: no such service: %s\n", name);
+				break;
+			}
+			stop_service(s);
+			set_down(s, 1);
+			fprintf(out, "OK: %s disabled\n", name);
 		}
 		stop_cascade();
 		break;
